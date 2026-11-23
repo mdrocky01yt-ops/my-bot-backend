@@ -1,8 +1,8 @@
+// Force update to trigger build
 import { neon } from '@neondatabase/serverless';
 
 export default {
   async fetch(request, env, ctx) {
-    // CORS হেডার সেট করা (যাতে মিনি অ্যাপ ডেটা নিতে পারে)
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
@@ -40,7 +40,7 @@ export default {
           const chatId = update.message.chat.id;
           const firstName = update.message.from.first_name || "বন্ধু"; 
           const botToken = env.BOT_TOKEN; 
-          const appUrl = "https://my-telegram-app-7s8.pages.dev"; // আপনার মিনি অ্যাপের লিংক
+          const appUrl = "https://my-telegram-app-7s8.pages.dev"; 
           
           const responseText = `স্বাগতম ${firstName}!\n\nভিডিও দেখতে এবং আনলক করতে নিচের বাটনে ক্লিক করুন।`;
           
