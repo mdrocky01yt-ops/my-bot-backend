@@ -1,0 +1,2 @@
+name = "my-bot-backend"
+main = "worker.js"
