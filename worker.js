@@ -10,11 +10,11 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
     const url = new URL(request.url);
+    const sql = neon(env.DATABASE_URL);
 
     try {
       // ১. ভিডিও লিস্ট আনা
       if (url.pathname === "/api/videos" && request.method === "GET") {
-        const sql = neon(env.DATABASE_URL);
         const videos = await sql`SELECT * FROM videos ORDER BY id DESC`;
         return new Response(JSON.stringify(videos), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -25,18 +25,22 @@ export default {
         if (body.password !== "admin123") {
           return new Response(JSON.stringify({ error: "ভুল পাসওয়ার্ড!" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-        const sql = neon(env.DATABASE_URL);
         await sql`INSERT INTO videos (title, thumbnail_url, file_id, views) VALUES (${body.title}, ${body.thumbnail}, ${body.file_id}, ${body.views})`;
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ৩. টোকেন তৈরি করা
+      // ৩. টোকেন তৈরি করা (ইউজার অটোমেটিক সেভ হবে)
       if (url.pathname === "/api/unlock-video" && request.method === "POST") {
         const { userId, videoId } = await request.json();
+        
+        // Foreign Key Error এড়াতে আগে ইউজারকে ডাটাবেসে যোগ করা
+        await sql`INSERT INTO users (id, first_name) VALUES (${userId}, 'User') ON CONFLICT (id) DO NOTHING`;
+
         const token = crypto.randomUUID();
         const expiresAt = new Date(Date.now() + 30 * 60000).toISOString();
-        const sql = neon(env.DATABASE_URL);
+        
         await sql`INSERT INTO tokens (user_id, video_id, token, expires_at) VALUES (${userId}, ${videoId}, ${token}, ${expiresAt})`;
+        
         return new Response(JSON.stringify({ success: true, botLink: `https://t.me/FileStorage_bd_bot?start=${token}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -52,7 +56,6 @@ export default {
           // স্টোরেজ বটের কমান্ড (/start TOKEN)
           if (text.startsWith('/start ')) {
             const token = text.split(' ')[1];
-            const sql = neon(env.DATABASE_URL);
             
             const tokenRes = await sql`SELECT video_id FROM tokens WHERE token = ${token} AND used = false AND expires_at > NOW()`;
             
@@ -97,7 +100,6 @@ export default {
       return new Response("Bot is running!", { headers: corsHeaders });
 
     } catch (err) {
-      // কোনো এরর হলে সেটা JSON আকারে পাঠাবে, যাতে অ্যাপ ক্র্যাশ না করে
       return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
   }
