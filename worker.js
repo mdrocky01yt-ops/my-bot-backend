@@ -8,7 +8,14 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
     const url = new URL(request.url);
-    const dbUrl = env.DATABASE_URL.replace('postgres://', 'https://').replace('postgresql://', 'https://');
+    
+    // ডাটাবেস লিংক ভেরিফাই করা
+    let dbUrl = "";
+    try {
+      dbUrl = env.DATABASE_URL.replace('postgres://', 'https://').replace('postgresql://', 'https://');
+    } catch(e) {
+      return new Response(JSON.stringify({ error: "DATABASE_URL সেট করা নেই!" }), { status: 500, headers: corsHeaders });
+    }
 
     // ১. ভিডিও লিস্ট
     if (url.pathname === "/api/videos" && request.method === "GET") {
@@ -18,10 +25,21 @@ export default {
           headers: { 'Content-Type': 'application/json', 'Neon-Pooler': 'true' },
           body: JSON.stringify({ query: 'SELECT * FROM videos ORDER BY id DESC', params: [] })
         });
+        
         const data = await response.json();
-        return new Response(JSON.stringify(data.rows), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        
+        // যদি Neon থেকে কোনো এরর আসে
+        if (data.message || data.error) {
+            return new Response(JSON.stringify([]), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // যদি data.rows থাকে তবে সেটা পাঠান, না থাকলে ফাঁকা লিস্ট পাঠান
+        const rows = data.rows ? data.rows : [];
+        return new Response(JSON.stringify(rows), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        
       } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+        // কোনো কারণে এরর হলে ফাঁকা লিস্ট পাঠান, যাতে অ্যাপ ক্র্যাশ না করে
+        return new Response(JSON.stringify([]), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
 
@@ -32,6 +50,7 @@ export default {
         if (body.password !== "admin123") {
           return new Response(JSON.stringify({ error: "ভুল পাসওয়ার্ড!" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
+        
         await fetch(`${dbUrl}/sql`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Neon-Pooler': 'true' },
@@ -40,18 +59,19 @@ export default {
             params: [body.title, body.thumbnail, body.file_id, body.views]
           })
         });
+        
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
 
-    // ৩. অ্যাড দেখার পর টোকেন তৈরি করা
+    // ৩. অ্যাড দেখার পর টোকেন তৈরি
     if (url.pathname === "/api/unlock-video" && request.method === "POST") {
       try {
         const { userId, videoId } = await request.json();
         const token = crypto.randomUUID(); 
-        const expiresAt = new Date(Date.now() + 30 * 60000).toISOString(); // ৩০ মিনিট
+        const expiresAt = new Date(Date.now() + 30 * 60000).toISOString();
 
         await fetch(`${dbUrl}/sql`, {
           method: 'POST',
@@ -71,7 +91,7 @@ export default {
       }
     }
 
-    // ৪. টেলিগ্রাম বটের ওয়েবহুক (মেইন বট এবং স্টোরেজ বট দুটোর জন্যই)
+    // ৪. টেলিগ্রাম বটের ওয়েবহুক
     if (request.method === "POST") {
       try {
         const update = await request.json();
@@ -85,7 +105,6 @@ export default {
           if (text.startsWith('/start ')) {
             const token = text.split(' ')[1];
             
-            // টোকেন চেক করা
             const tokenRes = await fetch(`${dbUrl}/sql`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Neon-Pooler': 'true' },
@@ -93,10 +112,9 @@ export default {
             });
             const tokenData = await tokenRes.json();
             
-            if (tokenData.rows.length > 0) {
+            if (tokenData.rows && tokenData.rows.length > 0) {
               const videoId = tokenData.rows[0].video_id;
               
-              // ভিডিওর ফাইল আইডি আনা
               const videoRes = await fetch(`${dbUrl}/sql`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Neon-Pooler': 'true' },
@@ -104,17 +122,15 @@ export default {
               });
               const videoData = await videoRes.json();
               
-              if (videoData.rows.length > 0) {
+              if (videoData.rows && videoData.rows.length > 0) {
                 const fileId = videoData.rows[0].file_id;
                 
-                // ভিডিও পাঠানো (STORAGE_BOT_TOKEN দিয়ে)
                 await fetch(`https://api.telegram.org/bot${env.STORAGE_BOT_TOKEN}/sendVideo`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ chat_id: chatId, video: fileId, caption: "ভিডিওটি ৩০ মিনিট পর মুছে যাবে।" })
                 });
                 
-                // টোকেনটি ব্যবহার করা হয়েছে বলে মার্ক করা
                 await fetch(`${dbUrl}/sql`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'Neon-Pooler': 'true' },
