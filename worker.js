@@ -29,11 +29,10 @@ export default {
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ৩. টোকেন তৈরি করা (ইউজার অটোমেটিক সেভ হবে)
+      // ৩. টোকেন তৈরি করা
       if (url.pathname === "/api/unlock-video" && request.method === "POST") {
         const { userId, videoId } = await request.json();
         
-        // Foreign Key Error এড়াতে আগে ইউজারকে ডাটাবেসে যোগ করা
         await sql`INSERT INTO users (id, first_name) VALUES (${userId}, 'User') ON CONFLICT (id) DO NOTHING`;
 
         const token = crypto.randomUUID();
@@ -44,7 +43,7 @@ export default {
         return new Response(JSON.stringify({ success: true, botLink: `https://t.me/FileStorage_bd_bot?start=${token}` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ৪. টেলিগ্রাম বটের ওয়েবহুক (মেইন এবং স্টোরেজ বট)
+      // ৪. টেলিগ্রাম বটের ওয়েবহুক (মেইন এবং স্টোরেজ)
       if (request.method === "POST") {
         const update = await request.json();
         
@@ -80,15 +79,26 @@ export default {
               });
             }
           } 
-          // মেইন বটের /start কমান্ড
+          // মেইন বট অথবা স্টোরেজ বটে শুধু /start দিলে
           else if (text === "/start") {
             const appUrl = "https://my-telegram-app-7s8.pages.dev";
+            // মেইন বটের মেসেজ
             await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 chat_id: chatId,
                 text: `স্বাগতম ${firstName}!\n\nভিডিও দেখতে এবং আনলক করতে নিচের বাটনে ক্লিক করুন।`,
+                reply_markup: { inline_keyboard: [[{ text: "🎮 Open App", web_app: { url: appUrl } }]] }
+              })
+            });
+            // স্টোরেজ বটের মেসেজ (যদি কেউ ভুল করে শুধু /start দেয়)
+            await fetch(`https://api.telegram.org/bot${env.STORAGE_BOT_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: `ভিডিও পেতে অনুগ্রহ করে মেইন অ্যাপে যান এবং অ্যাড দেখুন।`,
                 reply_markup: { inline_keyboard: [[{ text: "🎮 Open App", web_app: { url: appUrl } }]] }
               })
             });
